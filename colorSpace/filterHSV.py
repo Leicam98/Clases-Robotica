@@ -10,9 +10,9 @@ def callback(x):
 cv2.createTrackbar("minH","original",0,255,callback)
 cv2.createTrackbar("maxH","original",255,255,callback)
 
-#video capture args 
-#Si es un numerico 0,1,2
-#Si es una url lee el buffer de video
+# video capture args 
+# Si es un numerico 0,1,2
+# Si es una url lee el buffer de video
 cam=cv2.VideoCapture(0)
 
 while(cam.isOpened()):

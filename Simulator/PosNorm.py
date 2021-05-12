@@ -1,64 +1,44 @@
+from os import sys
+sys.path.append('C:/Users/PedroLuis/Clases-Robotica/Lib')
+
 import urllib.request
 import cv2
 import numpy as np
 from pyzbar import pyzbar
-# from lib.qrReader import getQRS
+from pyzbar.pyzbar import decode
+from qrReader import getQRS
 
-def getQRS(img):
-    return [{
-        'polygon': QR.polygon,
-        'rect': QR.rect,
-        'text': QR.data.decode('utf-8')
-    }
-        for QR in pyzbar.decode(img)]
 
 def getPosNorm(img):
     result = []
     W = img.shape[1] #ancho imagen
     H = img.shape[0] #alto imagen
 
-    for QR in getQRS(img):
-        print(QR)
-        wc = QR['rect'].width #ancho QR
-        hc = QR['rect'].height #alto QR
-        Cx, Cy = 0, 0 # se inicializan coordenadas del centroide en 0
-        for point in QR['polygon']: # se recorren los puntos del poligono del QR
-            Cx += point.x
-            Cy += point.y
-        Cx/=4; Cy/=4 # se obtiene el centroide
-        [xn,yn]=[Cx/W,Cy/H] # posicion normalizada del QR
-        [wn,hn]=[wc/W,hc/H] # tamaño normalizado de la imagen
+    for QR in decode(img):
+        #print(QR.data)
+        myData = QR.data.decode('utf-8')
+        #print(myData)
+        pts = np.array([QR.polygon], np.int32)
+        pts = pts.reshape((-1, 1, 2))
+        pts2 = QR.rect
+        cv2.polylines(img, [pts], True, (255,0,0),5)
+        cv2.putText(img, myData, (pts2[0], pts2[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.9, [255,0,255], 2)
+
+        wc = pts2.width # ancho QR
+        hc = pts2.height # alto QR
+
+        # centroide QR
+        Cx = ((pts[0][0][0]+pts[2][0][0]))/2
+        Cy = ((pts[0][0][1]+pts[2][0][1]))/2
+
+        [xn,yn]=[Cx/W,Cy/H] # posicion normalizada
+        [wn,hn]=[wc/W,hc/H] # tamaño normalizado
         result.append({"x":xn,"y":yn,"w":wn,"h":hn})
     return result
 
-
-#main
-
-# cap = cv2.VideoCapture('http://192.168.100.41:8080')
-url = "http://192.168.100.41:8080/shot.jpg"
-
-while True:
-    imgResp = urllib.request.urlopen(url)
-    imgNp = np.array(bytearray(imgResp.read()), dtype=np.uint8)
-    img = cv2.imdecode(imgNp, -1)
-    
-# Image Scaling
-    scale_percent = 50
-    width = int(img.shape[1] * scale_percent / 100)
-    height = int(img.shape[0] * scale_percent / 100)
-    # dsize
-    dsize = (width, height)
-    # resize image
-    resized = cv2.resize(img, dsize)
-
-    print(getQRS(img))
-    cv2.imshow('test', resized)
-
-
-# Hallando el centro de masa del recuadro
-
+def centroMasa(img):
     #convertir a HSV
-    imageHSV=cv2.cvtColor(resized,cv2.COLOR_BGR2HSV)
+    imageHSV=cv2.cvtColor(img,cv2.COLOR_BGR2HSV)
 
     #filtrado
     minH=np.array([0,0,0])
@@ -80,13 +60,62 @@ while True:
 
     #posicion centro de masa
     xcenter=moments['m10']/moments['m00']
-    ycenter=moments['m01']/moments['m00']
+    ycenter=moments['m01']/moments['m00']    
+    return areaObject, areaImage, xcenter, ycenter, binaryImage
 
-    print("Area",areaObject/areaImage)
-    print(xcenter/binaryImage.shape[1],ycenter/binaryImage.shape[0])
+def resize_img(img):
+    # Image Scaling
+    scale_percent = 50
+    width = int(img.shape[1] * scale_percent / 100)
+    height = int(img.shape[0] * scale_percent / 100)
+    # dsize
+    dsize = (width, height)
+    # resize image
+    resized = cv2.resize(img, dsize)
+    return resized
 
-#posicion
-    print(getPosNorm(img))
-    print("\n")
-    if ord('q') == cv2.waitKey(10):
-        exit(0)
+def contour_img(img):
+    img_grey = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+    #set a thresh
+    thresh = 100
+    #get threshold image
+    ret,thresh_img = cv2.threshold(img_grey, thresh, 255, cv2.THRESH_BINARY)
+    #find contours
+    contours, hierarchy = cv2.findContours(thresh_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    #create acopy of the image for contours
+    img_contours = img.copy()
+
+    # draw the contours on the empty image
+    cv2.drawContours(img_contours, contours, -1, (0,255,0), 3)
+
+    return img_contours
+
+#main
+if __name__ == "__main__":
+    # cap = cv2.VideoCapture('http://192.168.100.41:8080')
+    url = "http://192.168.100.41:8080/shot.jpg"
+
+    while True:
+        imgResp = urllib.request.urlopen(url)
+        imgNp = np.array(bytearray(imgResp.read()), dtype=np.uint8)
+        img = cv2.imdecode(imgNp, -1)
+
+    # Hallando el centro de masa del recuadro por Momentos
+        areaObject, areaImage, xcenter, ycenter, binaryImage = centroMasa(img)
+        print("Recuadro (Utilizando Momentos)\nArea",areaObject/areaImage)
+        print("CM X", xcenter/binaryImage.shape[1], "\nCM Y", ycenter/binaryImage.shape[0])
+        
+    #posicion
+        print(getPosNorm(img))
+        print("\n")
+    
+    #Contorno
+        #img = contour_img(img) #Todavia no marca bien el marco
+
+    #Imagen con QR resaltado
+        resized = resize_img(img)
+        cv2.imshow('Resultado',resized)
+
+        if ord('q') == cv2.waitKey(10):
+            exit(0)
